@@ -240,7 +240,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Created by joy',
+                'Created by LKJOY',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
               ),
               const SizedBox(height: 10),
