@@ -78,11 +78,11 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     }
   }
 
-  // Generate 880Hz (A5 note) PCM WAV audio bytes in memory
+  // Generate 880Hz PCM WAV audio bytes for Beep sound
   Uint8List _generateBeepWav() {
     const int sampleRate = 22050;
     const double frequency = 880.0;
-    const int durationMs = 600; // 0.6 seconds beep
+    const int durationMs = 600; // 0.6 second beep
     const int numSamples = (sampleRate * durationMs) ~/ 1000;
     const int dataSize = numSamples * 2;
     final int fileSize = 44 + dataSize;
@@ -235,7 +235,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             children: [
               ListTile(
                 leading: const Icon(Icons.stay_current_portrait, color: Colors.blueAccent),
-                title: const Text('Portrait Mode (লম্বালম্বি)'),
+                title: const Text('Portrait Mode'),
                 trailing: _currentOrientation == 'portrait' ? const Icon(Icons.check_circle, color: Colors.green) : null,
                 onTap: () {
                   _changeOrientation('portrait');
@@ -244,7 +244,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               ),
               ListTile(
                 leading: const Icon(Icons.stay_current_landscape, color: Colors.blueAccent),
-                title: const Text('Landscape Mode (অনুভূমিক/চওড়া)'),
+                title: const Text('Landscape Mode'),
                 trailing: _currentOrientation == 'landscape' ? const Icon(Icons.check_circle, color: Colors.green) : null,
                 onTap: () {
                   _changeOrientation('landscape');
@@ -253,7 +253,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               ),
               ListTile(
                 leading: const Icon(Icons.screen_rotation_outlined, color: Colors.blueAccent),
-                title: const Text('Auto Rotate (স্বয়ংক্রিয়)'),
+                title: const Text('Auto Rotate'),
                 trailing: _currentOrientation == 'auto' ? const Icon(Icons.check_circle, color: Colors.green) : null,
                 onTap: () {
                   _changeOrientation('auto');
@@ -383,7 +383,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Created by joy',
+                'Developed by LKJOY',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
               ),
               const SizedBox(height: 10),
@@ -431,6 +431,259 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
           ],
         );
       },
+    );
+  }
+
+  // PORTRAIT LAYOUT - Fully fits on screen (No Scroll)
+  Widget _buildPortraitLayout() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        // Mode selector pill
+        GestureDetector(
+          onTap: _showCustomTimeDialog,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.blueGrey.shade800,
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: Colors.blueAccent, width: 1.5),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.timer_outlined, color: Colors.blueAccent),
+                const SizedBox(width: 8),
+                Text(
+                  'Mode: $_workMinutes + $_breakMinutes Min (Tap to change)',
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Work/Break Badge
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          decoration: BoxDecoration(
+            color: _isWorkTime ? Colors.redAccent : Colors.green,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            _isWorkTime ? 'Work Time' : 'Break Time',
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+        ),
+
+        // Timer display (Scales down dynamically to fit screen)
+        GestureDetector(
+          onTap: _showCustomTimeDialog,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  _formatTime(_timeLeft),
+                  style: const TextStyle(fontSize: 80, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '💡 Tap timer to adjust custom minutes',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+              ),
+            ],
+          ),
+        ),
+
+        // Session counter
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white12,
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: Colors.white24),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                '🍅 Completed Sessions: ',
+                style: TextStyle(fontSize: 15, color: Colors.white70),
+              ),
+              Text(
+                '$_completedSessions',
+                style: const TextStyle(
+                  fontSize: 18, 
+                  fontWeight: FontWeight.bold, 
+                  color: Colors.redAccent,
+                ),
+              ),
+              if (_completedSessions > 0) ...[
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: () => setState(() => _completedSessions = 0),
+                  child: const Icon(Icons.refresh, size: 18, color: Colors.grey),
+                ),
+              ]
+            ],
+          ),
+        ),
+
+        // Controls (Start / Pause / Reset)
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              iconSize: 64,
+              icon: Icon(_isRunning ? Icons.pause_circle_filled : Icons.play_circle_fill),
+              color: Colors.blueAccent,
+              onPressed: _isRunning ? _pauseTimer : _startTimer,
+            ),
+            const SizedBox(width: 20),
+            IconButton(
+              iconSize: 48,
+              icon: const Icon(Icons.replay),
+              color: Colors.grey,
+              onPressed: _resetTimer,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // LANDSCAPE LAYOUT - Fully fits on screen (No Scroll)
+  Widget _buildLandscapeLayout() {
+    return Row(
+      children: [
+        // Left Column: Status Badge & Large Timer
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                decoration: BoxDecoration(
+                  color: _isWorkTime ? Colors.redAccent : Colors.green,
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: Text(
+                  _isWorkTime ? 'Work Time' : 'Break Time',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+              GestureDetector(
+                onTap: _showCustomTimeDialog,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        _formatTime(_timeLeft),
+                        style: const TextStyle(fontSize: 68, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '💡 Tap timer to adjust minutes',
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const VerticalDivider(width: 1, color: Colors.white24, indent: 10, endIndent: 10),
+
+        // Right Column: Mode, Sessions, Controls
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              GestureDetector(
+                onTap: _showCustomTimeDialog,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey.shade800,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blueAccent, width: 1),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.timer_outlined, color: Colors.blueAccent, size: 18),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Mode: $_workMinutes + $_breakMinutes Min',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white12,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '🍅 Sessions: ',
+                      style: TextStyle(fontSize: 13, color: Colors.white70),
+                    ),
+                    Text(
+                      '$_completedSessions',
+                      style: const TextStyle(
+                        fontSize: 16, 
+                        fontWeight: FontWeight.bold, 
+                        color: Colors.redAccent,
+                      ),
+                    ),
+                    if (_completedSessions > 0) ...[
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => setState(() => _completedSessions = 0),
+                        child: const Icon(Icons.refresh, size: 16, color: Colors.grey),
+                      ),
+                    ]
+                  ],
+                ),
+              ),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    iconSize: 56,
+                    icon: Icon(_isRunning ? Icons.pause_circle_filled : Icons.play_circle_fill),
+                    color: Colors.blueAccent,
+                    onPressed: _isRunning ? _pauseTimer : _startTimer,
+                  ),
+                  const SizedBox(width: 16),
+                  IconButton(
+                    iconSize: 42,
+                    icon: const Icon(Icons.replay),
+                    color: Colors.grey,
+                    onPressed: _resetTimer,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -489,122 +742,16 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
         ],
       ),
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Current Configured Mode Indicator
-                GestureDetector(
-                  onTap: _showCustomTimeDialog,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.blueGrey.shade800,
-                      borderRadius: BorderRadius.circular(15),
-                      border: Border.all(color: Colors.blueAccent, width: 1.5),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.timer_outlined, color: Colors.blueAccent),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Mode: $_workMinutes + $_breakMinutes Min (Tap to change)',
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Work / Break Status Badge
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: _isWorkTime ? Colors.redAccent : Colors.green,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    _isWorkTime ? 'Work Time' : 'Break Time',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Timer Clock Display
-                GestureDetector(
-                  onTap: _showCustomTimeDialog,
-                  child: Text(
-                    _formatTime(_timeLeft),
-                    style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '💡 Tap timer to adjust custom minutes',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
-                ),
-                const SizedBox(height: 25),
-
-                // Session Counter
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.white12,
-                    borderRadius: BorderRadius.circular(15),
-                    border: Border.all(color: Colors.white24),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        '🍅 Completed Sessions: ',
-                        style: TextStyle(fontSize: 15, color: Colors.white70),
-                      ),
-                      Text(
-                        '$_completedSessions',
-                        style: const TextStyle(
-                          fontSize: 18, 
-                          fontWeight: FontWeight.bold, 
-                          color: Colors.redAccent,
-                        ),
-                      ),
-                      if (_completedSessions > 0) ...[
-                        const SizedBox(width: 10),
-                        GestureDetector(
-                          onTap: () => setState(() => _completedSessions = 0),
-                          child: const Icon(Icons.refresh, size: 18, color: Colors.grey),
-                        ),
-                      ]
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 25),
-
-                // Controls (Start / Pause / Reset)
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    IconButton(
-                      iconSize: 64,
-                      icon: Icon(_isRunning ? Icons.pause_circle_filled : Icons.play_circle_fill),
-                      color: Colors.blueAccent,
-                      onPressed: _isRunning ? _pauseTimer : _startTimer,
-                    ),
-                    const SizedBox(width: 20),
-                    IconButton(
-                      iconSize: 48,
-                      icon: const Icon(Icons.replay),
-                      color: Colors.grey,
-                      onPressed: _resetTimer,
-                    ),
-                  ],
-                ),
-              ],
-            ),
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: OrientationBuilder(
+            builder: (context, orientation) {
+              if (orientation == Orientation.landscape) {
+                return _buildLandscapeLayout();
+              } else {
+                return _buildPortraitLayout();
+              }
+            },
           ),
         ),
       ),
