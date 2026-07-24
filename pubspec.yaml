@@ -1,5 +1,5 @@
 name: pomodoro_app
-description: "A simple 25+5 & 50+10 Pomodoro Timer App"
+description: "A customizable 1-60 min Pomodoro Timer App"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.6
+  url_launcher: ^6.2.5
 
 dev_dependencies:
   flutter_test:
