@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 void main() {
   runApp(const PomodoroApp());
@@ -66,6 +67,14 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     }
   }
 
+  // Play sound when timer finishes
+  void _playBeepSound() {
+    FlutterRingtonePlayer().playNotification(
+      volume: 1.0,
+      asAlarm: false,
+    );
+  }
+
   void _updateRemainingTime() {
     if (_targetEndTime == null) return;
     
@@ -76,6 +85,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
       if (difference > 0) {
         _timeLeft = difference;
       } else {
+        // Play sound when timer hits zero
+        _playBeepSound();
+
         if (_isWorkTime) {
           _completedSessions++;
         }
@@ -144,7 +156,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Work Duration Slider (1 to 60 Mins)
+                  // Work Duration Slider
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -168,7 +180,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                   ),
                   const SizedBox(height: 15),
 
-                  // Break Duration Slider (1 to 15 Mins)
+                  // Break Duration Slider
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -240,7 +252,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Created by LKJOY',
+                'Created by joy',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
               ),
               const SizedBox(height: 10),
