@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   runApp(const PomodoroApp());
@@ -27,18 +28,19 @@ class PomodoroScreen extends StatefulWidget {
 }
 
 class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObserver {
-  // Mode selection: false = 25+5 min mode, true = 50+10 min mode
-  bool _is50MinMode = false;
+  // Custom duration variables in minutes
+  int _workMinutes = 25; // Default: 25 mins (Range: 1 to 60)
+  int _breakMinutes = 5;  // Default: 5 mins  (Range: 1 to 15)
 
-  int get workTimeSeconds => (_is50MinMode ? 50 : 25) * 60;
-  int get breakTimeSeconds => (_is50MinMode ? 10 : 5) * 60;
+  int get workTimeSeconds => _workMinutes * 60;
+  int get breakTimeSeconds => _breakMinutes * 60;
 
   late int _timeLeft;
   bool _isRunning = false;
   bool _isWorkTime = true;
   Timer? _timer;
   
-  // Track system clock for background accuracy
+  // System clock tracking for background accuracy
   DateTime? _targetEndTime;
 
   // Session counter variable
@@ -58,7 +60,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     super.dispose();
   }
 
-  // Recalculate remaining time when returning from background
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _isRunning && _targetEndTime != null) {
@@ -76,27 +77,14 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
       if (difference > 0) {
         _timeLeft = difference;
       } else {
-        // Increment session count if work time finishes
         if (_isWorkTime) {
           _completedSessions++;
         }
 
-        // Toggle work/break mode
         _isWorkTime = !_isWorkTime;
         _timeLeft = _isWorkTime ? workTimeSeconds : breakTimeSeconds;
         _targetEndTime = DateTime.now().add(Duration(seconds: _timeLeft));
       }
-    });
-  }
-
-  void _toggleMode() {
-    _timer?.cancel();
-    setState(() {
-      _is50MinMode = !_is50MinMode;
-      _isRunning = false;
-      _isWorkTime = true;
-      _timeLeft = workTimeSeconds;
-      _targetEndTime = null;
     });
   }
 
@@ -135,20 +123,221 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
+  // Open Facebook profile link
+  Future<void> _launchFacebookProfile() async {
+    final Uri url = Uri.parse('https://www.facebook.com/IMALONEJOY');
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      debugPrint('Could not launch $url');
+    }
+  }
+
+  // Dialog to set custom timer durations (Work: 1-60m, Break: 1-15m)
+  void _showCustomTimeDialog() {
+    int tempWork = _workMinutes;
+    int tempBreak = _breakMinutes;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: const Row(
+                children: [
+                  Icon(Icons.tune, color: Colors.blueAccent),
+                  SizedBox(width: 10),
+                  Text('Set Custom Timer'),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Work Duration Slider
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Work Time:'),
+                      Text(
+                        '$tempWork min',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: tempWork.toDouble(),
+                    min: 1,
+                    max: 60,
+                    divisions: 59,
+                    activeColor: Colors.redAccent,
+                    label: '$tempWork min',
+                    onChanged: (value) {
+                      setDialogState(() => tempWork = value.toInt());
+                    },
+                  ),
+                  const SizedBox(height: 15),
+
+                  // Break Duration Slider
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Break Time:'),
+                      Text(
+                        '$tempBreak min',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: tempBreak.toDouble(),
+                    min: 1,
+                    max: 15,
+                    divisions: 14,
+                    activeColor: Colors.green,
+                    label: '$tempBreak min',
+                    onChanged: (value) {
+                      setDialogState(() => tempBreak = value.toInt());
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+                  onPressed: () {
+                    _timer?.cancel();
+                    setState(() {
+                      _workMinutes = tempWork;
+                      _breakMinutes = tempBreak;
+                      _isRunning = false;
+                      _isWorkTime = true;
+                      _timeLeft = workTimeSeconds;
+                      _targetEndTime = null;
+                    });
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Apply', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Developer About Dialog
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.person, color: Colors.blueAccent),
+              SizedBox(width: 10),
+              Text('About Developer'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Created by joy',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'A simple and efficient Pomodoro Timer designed to help boost your focus and productivity.',
+                style: TextStyle(fontSize: 14, color: Colors.white70),
+              ),
+              const SizedBox(height: 20),
+              
+              // Facebook Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1877F2), // Facebook Blue
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  icon: const Icon(Icons.facebook, color: Colors.white),
+                  label: const Text(
+                    'Connect on Facebook',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: _launchFacebookProfile,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close', style: TextStyle(color: Colors.blueAccent)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pomodoro Timer'),
         centerTitle: true,
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'custom_time') {
+                _showCustomTimeDialog();
+              } else if (value == 'about') {
+                _showAboutDialog();
+              }
+            },
+            itemBuilder: (context) {
+              return [
+                const PopupMenuItem<String>(
+                  value: 'custom_time',
+                  child: Row(
+                    children: [
+                      Icon(Icons.tune, color: Colors.white70),
+                      SizedBox(width: 10),
+                      Text('Set Custom Time'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem<String>(
+                  value: 'about',
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.white70),
+                      SizedBox(width: 10),
+                      Text('About Developer'),
+                    ],
+                  ),
+                ),
+              ];
+            },
+          ),
+        ],
       ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Mode Switcher Button
+            // Current Configured Mode Indicator
             GestureDetector(
-              onTap: _toggleMode,
+              onTap: _showCustomTimeDialog,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(
@@ -159,10 +348,10 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.swap_horiz, color: Colors.blueAccent),
+                    const Icon(Icons.timer_outlined, color: Colors.blueAccent),
                     const SizedBox(width: 8),
                     Text(
-                      _is50MinMode ? 'Mode: 50+10 Min (Tap to switch)' : 'Mode: 25+5 Min (Tap to switch)',
+                      'Mode: $_workMinutes + $_breakMinutes Min (Tap to change)',
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
                     ),
                   ],
@@ -171,7 +360,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             ),
             const SizedBox(height: 25),
 
-            // Work / Break Status Tag
+            // Work / Break Status Badge
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               decoration: BoxDecoration(
@@ -185,9 +374,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             ),
             const SizedBox(height: 25),
 
-            // Main Timer Display
+            // Timer Clock Display
             GestureDetector(
-              onTap: _toggleMode,
+              onTap: _showCustomTimeDialog,
               child: Text(
                 _formatTime(_timeLeft),
                 style: const TextStyle(fontSize: 76, fontWeight: FontWeight.bold),
@@ -195,12 +384,12 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             ),
             const SizedBox(height: 8),
             Text(
-              '💡 Tap timer to switch 25m / 50m modes',
+              '💡 Tap timer to adjust custom minutes',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
             ),
             const SizedBox(height: 30),
 
-            // Session Counter Section
+            // Session Counter
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
