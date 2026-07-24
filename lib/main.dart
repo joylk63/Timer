@@ -27,7 +27,7 @@ class PomodoroScreen extends StatefulWidget {
 }
 
 class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObserver {
-  // false = 25+5 min mode, true = 50+10 min mode
+  // Mode selection: false = 25+5 min mode, true = 50+10 min mode
   bool _is50MinMode = false;
 
   int get workTimeSeconds => (_is50MinMode ? 50 : 25) * 60;
@@ -40,6 +40,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   
   // Track system clock for background accuracy
   DateTime? _targetEndTime;
+
+  // Session counter variable
+  int _completedSessions = 0;
 
   @override
   void initState() {
@@ -73,7 +76,12 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
       if (difference > 0) {
         _timeLeft = difference;
       } else {
-        // Automatically switch between Work and Break when timer ends
+        // Increment session count if work time finishes
+        if (_isWorkTime) {
+          _completedSessions++;
+        }
+
+        // Toggle work/break mode
         _isWorkTime = !_isWorkTime;
         _timeLeft = _isWorkTime ? workTimeSeconds : breakTimeSeconds;
         _targetEndTime = DateTime.now().add(Duration(seconds: _timeLeft));
@@ -161,7 +169,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                 ),
               ),
             ),
-            const SizedBox(height: 35),
+            const SizedBox(height: 25),
 
             // Work / Break Status Tag
             Container(
@@ -175,9 +183,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 25),
 
-            // Timer Display
+            // Main Timer Display
             GestureDetector(
               onTap: _toggleMode,
               child: Text(
@@ -190,9 +198,44 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               '💡 Tap timer to switch 25m / 50m modes',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 30),
 
-            // Controls
+            // Session Counter Section
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white12,
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '🍅 Completed Sessions: ',
+                    style: TextStyle(fontSize: 15, color: Colors.white70),
+                  ),
+                  Text(
+                    '$_completedSessions',
+                    style: const TextStyle(
+                      fontSize: 18, 
+                      fontWeight: FontWeight.bold, 
+                      color: Colors.redAccent,
+                    ),
+                  ),
+                  if (_completedSessions > 0) ...[
+                    const SizedBox(width: 10),
+                    GestureDetector(
+                      onTap: () => setState(() => _completedSessions = 0),
+                      child: const Icon(Icons.refresh, size: 18, color: Colors.grey),
+                    ),
+                  ]
+                ],
+              ),
+            ),
+            const SizedBox(height: 35),
+
+            // Controls (Start / Pause / Reset)
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
