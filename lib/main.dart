@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'package:flutter/services.dart';
 
 void main() {
   runApp(const PomodoroApp());
@@ -67,12 +67,12 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     }
   }
 
-  // Play sound when timer finishes
-  void _playBeepSound() {
-    FlutterRingtonePlayer().playNotification(
-      volume: 1.0,
-      asAlarm: false,
-    );
+  // Play system sound pattern (Beep) when timer finishes
+  Future<void> _playBeepSound() async {
+    for (int i = 0; i < 4; i++) {
+      SystemSound.play(SystemSoundType.click);
+      await Future.delayed(const Duration(milliseconds: 150));
+    }
   }
 
   void _updateRemainingTime() {
@@ -85,7 +85,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
       if (difference > 0) {
         _timeLeft = difference;
       } else {
-        // Play sound when timer hits zero
+        // Play sound when timer reaches 00:00
         _playBeepSound();
 
         if (_isWorkTime) {
