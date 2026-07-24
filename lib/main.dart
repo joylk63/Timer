@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   runApp(const PomodoroApp());
@@ -28,7 +27,7 @@ class PomodoroScreen extends StatefulWidget {
 }
 
 class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObserver {
-  // Custom duration variables in minutes
+  // Custom durations in minutes
   int _workMinutes = 25; // Default: 25 mins (Range: 1 to 60)
   int _breakMinutes = 5;  // Default: 5 mins  (Range: 1 to 15)
 
@@ -40,7 +39,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   bool _isWorkTime = true;
   Timer? _timer;
   
-  // System clock tracking for background accuracy
+  // Track system clock for background accuracy
   DateTime? _targetEndTime;
 
   // Session counter variable
@@ -123,14 +122,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
-  // Open Facebook profile link
-  Future<void> _launchFacebookProfile() async {
-    final Uri url = Uri.parse('https://www.facebook.com/IMALONEJOY');
-    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      debugPrint('Could not launch $url');
-    }
-  }
-
   // Dialog to set custom timer durations (Work: 1-60m, Break: 1-15m)
   void _showCustomTimeDialog() {
     int tempWork = _workMinutes;
@@ -153,7 +144,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Work Duration Slider
+                  // Work Duration Slider (1 to 60 Mins)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -177,7 +168,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                   ),
                   const SizedBox(height: 15),
 
-                  // Break Duration Slider
+                  // Break Duration Slider (1 to 15 Mins)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -259,21 +250,33 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               ),
               const SizedBox(height: 20),
               
-              // Facebook Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1877F2), // Facebook Blue
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  icon: const Icon(Icons.facebook, color: Colors.white),
-                  label: const Text(
-                    'Connect on Facebook',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                  onPressed: _launchFacebookProfile,
+              // Facebook Link Display Box
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white10,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blueAccent.withOpacity(0.5)),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.facebook, color: Color(0xFF1877F2), size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'Facebook Profile',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 6),
+                    SelectableText(
+                      'https://www.facebook.com/IMALONEJOY',
+                      style: TextStyle(fontSize: 12, color: Colors.blueAccent),
+                    ),
+                  ],
                 ),
               ),
             ],
