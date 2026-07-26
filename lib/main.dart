@@ -539,7 +539,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             ),
             accountEmail: Text(
               'Lifetime Focus: ${_calculateTotalDuration(_sessionLogs)}',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.white90),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.white70),
             ),
             currentAccountPicture: const CircleAvatar(
               backgroundColor: Colors.white,
