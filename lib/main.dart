@@ -1,13 +1,33 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const PomodoroApp());
+}
+
+// Session Model Class for JSON Serialization
+class SessionEntry {
+  final DateTime dateTime;
+  final int durationMinutes;
+
+  SessionEntry({required this.dateTime, required this.durationMinutes});
+
+  Map<String, dynamic> toJson() => {
+        'dateTime': dateTime.toIso8601String(),
+        'durationMinutes': durationMinutes,
+      };
+
+  factory SessionEntry.fromJson(Map<String, dynamic> json) => SessionEntry(
+        dateTime: DateTime.parse(json['dateTime']),
+        durationMinutes: json['durationMinutes'],
+      );
 }
 
 class PomodoroApp extends StatelessWidget {
@@ -33,8 +53,8 @@ class PomodoroScreen extends StatefulWidget {
 
 class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObserver {
   // Custom durations in minutes
-  int _workMinutes = 25; // Default: 25 mins (Range: 1 to 60)
-  int _breakMinutes = 5;  // Default: 5 mins  (Range: 1 to 15)
+  int _workMinutes = 25;
+  int _breakMinutes = 5;
 
   int get workTimeSeconds => _workMinutes * 60;
   int get breakTimeSeconds => _breakMinutes * 60;
@@ -43,12 +63,15 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   bool _isRunning = false;
   bool _isWorkTime = true;
   Timer? _timer;
-  
+
   // Track system clock for background accuracy
   DateTime? _targetEndTime;
 
-  // Session counter variable
-  int _completedSessions = 0;
+  // List to store completed session logs
+  List<SessionEntry> _sessionLogs = [];
+
+  // Selected date in calendar view
+  DateTime _selectedCalendarDate = DateTime.now();
 
   // Current orientation mode tracker
   String _currentOrientation = 'auto'; // 'portrait', 'landscape', 'auto'
@@ -61,6 +84,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _timeLeft = workTimeSeconds;
+    _loadSessionLogs();
   }
 
   @override
@@ -71,7 +95,55 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     super.dispose();
   }
 
-  @override
+  // Calculate "Work Date" considering 4:00 AM as the reset boundary
+  DateTime _getWorkDate(DateTime dt) {
+    if (dt.hour < 4) {
+      DateTime yesterday = dt.subtract(const Duration(days: 1));
+      return DateTime(yesterday.year, yesterday.month, yesterday.day);
+    } else {
+      return DateTime(dt.year, dt.month, dt.day);
+    }
+  }
+
+  bool _isSameWorkDate(DateTime dt1, DateTime dt2) {
+    DateTime w1 = _getWorkDate(dt1);
+    DateTime w2 = _getWorkDate(dt2);
+    return w1.year == w2.year && w1.month == w2.month && w1.day == w2.day;
+  }
+
+  // Count sessions completed for "Today" (since 4:00 AM today)
+  int get _todaySessionsCount {
+    DateTime now = DateTime.now();
+    return _sessionLogs.where((log) => _isSameWorkDate(log.dateTime, now)).length;
+  }
+
+  // Load saved session logs from Local Storage
+  Future<void> _loadSessionLogs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String>? rawLogs = prefs.getStringList('pomodoro_logs');
+    if (rawLogs != null) {
+      setState(() {
+        _sessionLogs = rawLogs.map((item) => SessionEntry.fromJson(jsonDecode(item))).toList();
+      });
+    }
+  }
+
+  // Save session logs to Local Storage
+  Future<void> _saveSessionLogs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> rawLogs = _sessionLogs.map((item) => jsonEncode(item.toJson())).toList();
+    await prefs.setStringList('pomodoro_logs', rawLogs);
+  }
+
+  // Clear history logs
+  Future<void> _clearHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('pomodoro_logs');
+    setState(() {
+      _sessionLogs.clear();
+    });
+  }
+    @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _isRunning && _targetEndTime != null) {
       _updateRemainingTime();
@@ -82,29 +154,26 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   Uint8List _generateBeepWav() {
     const int sampleRate = 22050;
     const double frequency = 880.0;
-    const int durationMs = 600; // 0.6 second beep
+    const int durationMs = 600;
     const int numSamples = (sampleRate * durationMs) ~/ 1000;
     const int dataSize = numSamples * 2;
     final int fileSize = 44 + dataSize;
-    
+
     final ByteData bytes = ByteData(fileSize);
 
-    // RIFF Header
     bytes.setUint32(0, 0x52494646, Endian.big); // "RIFF"
     bytes.setUint32(4, fileSize - 8, Endian.little);
     bytes.setUint32(8, 0x57415645, Endian.big); // "WAVE"
-    
-    // FMT Chunk
+
     bytes.setUint32(12, 0x666d7420, Endian.big); // "fmt "
     bytes.setUint32(16, 16, Endian.little);
-    bytes.setUint16(20, 1, Endian.little); // PCM
-    bytes.setUint16(22, 1, Endian.little); // Mono
+    bytes.setUint16(20, 1, Endian.little);
+    bytes.setUint16(22, 1, Endian.little);
     bytes.setUint32(24, sampleRate, Endian.little);
     bytes.setUint32(28, sampleRate * 2, Endian.little);
     bytes.setUint16(32, 2, Endian.little);
     bytes.setUint16(34, 16, Endian.little);
-    
-    // Data Chunk
+
     bytes.setUint32(36, 0x64617461, Endian.big); // "data"
     bytes.setUint32(40, dataSize, Endian.little);
 
@@ -118,7 +187,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     return bytes.buffer.asUint8List();
   }
 
-  // Play Beep Sound + Vibration
   Future<void> _playBeepSound() async {
     try {
       final wavBytes = _generateBeepWav();
@@ -134,7 +202,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
 
   void _updateRemainingTime() {
     if (_targetEndTime == null) return;
-    
+
     final now = DateTime.now();
     final difference = _targetEndTime!.difference(now).inSeconds;
 
@@ -142,11 +210,14 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
       if (difference > 0) {
         _timeLeft = difference;
       } else {
-        // Play sound when timer reaches 00:00
         _playBeepSound();
 
         if (_isWorkTime) {
-          _completedSessions++;
+          _sessionLogs.insert(
+            0,
+            SessionEntry(dateTime: DateTime.now(), durationMinutes: _workMinutes),
+          );
+          _saveSessionLogs();
         }
 
         _isWorkTime = !_isWorkTime;
@@ -158,7 +229,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
 
   void _startTimer() {
     if (_timer != null) _timer!.cancel();
-    
+
     _targetEndTime = DateTime.now().add(Duration(seconds: _timeLeft));
     setState(() => _isRunning = true);
 
@@ -191,7 +262,24 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
-  // Change screen orientation dynamically
+  String _formatDateTime(DateTime dt) {
+    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDateOnly(DateTime dt) {
+    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+  }
+
+  String _calculateTotalDuration(List<SessionEntry> entries) {
+    int totalMinutes = entries.fold(0, (sum, item) => sum + item.durationMinutes);
+    int hours = totalMinutes ~/ 60;
+    int minutes = totalMinutes % 60;
+    if (hours > 0) {
+      return '$hours hrs $minutes mins';
+    }
+    return '$minutes mins';
+  }
+
   void _changeOrientation(String mode) {
     setState(() {
       _currentOrientation = mode;
@@ -216,7 +304,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     }
   }
 
-  // Orientation Selector Dialog
   void _showOrientationDialog() {
     showDialog(
       context: context,
@@ -236,7 +323,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               ListTile(
                 leading: const Icon(Icons.stay_current_portrait, color: Colors.blueAccent),
                 title: const Text('Portrait Mode'),
-                trailing: _currentOrientation == 'portrait' ? const Icon(Icons.check_circle, color: Colors.green) : null,
+                trailing: _currentOrientation == 'portrait'
+                    ? const Icon(Icons.check_circle, color: Colors.green)
+                    : null,
                 onTap: () {
                   _changeOrientation('portrait');
                   Navigator.pop(context);
@@ -245,7 +334,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               ListTile(
                 leading: const Icon(Icons.stay_current_landscape, color: Colors.blueAccent),
                 title: const Text('Landscape Mode'),
-                trailing: _currentOrientation == 'landscape' ? const Icon(Icons.check_circle, color: Colors.green) : null,
+                trailing: _currentOrientation == 'landscape'
+                    ? const Icon(Icons.check_circle, color: Colors.green)
+                    : null,
                 onTap: () {
                   _changeOrientation('landscape');
                   Navigator.pop(context);
@@ -254,7 +345,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               ListTile(
                 leading: const Icon(Icons.screen_rotation_outlined, color: Colors.blueAccent),
                 title: const Text('Auto Rotate'),
-                trailing: _currentOrientation == 'auto' ? const Icon(Icons.check_circle, color: Colors.green) : null,
+                trailing: _currentOrientation == 'auto'
+                    ? const Icon(Icons.check_circle, color: Colors.green)
+                    : null,
                 onTap: () {
                   _changeOrientation('auto');
                   Navigator.pop(context);
@@ -267,7 +360,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     );
   }
 
-  // Dialog to set custom timer durations
   void _showCustomTimeDialog() {
     int tempWork = _workMinutes;
     int tempBreak = _breakMinutes;
@@ -311,7 +403,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                     },
                   ),
                   const SizedBox(height: 15),
-
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -364,7 +455,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     );
   }
 
-  // Developer About Dialog
   void _showAboutDialog() {
     showDialog(
       context: context,
@@ -392,7 +482,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                 style: TextStyle(fontSize: 14, color: Colors.white70),
               ),
               const SizedBox(height: 20),
-              
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -433,13 +522,147 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
       },
     );
   }
+    // NAVIGATION DRAWER (Three-bar Menu with Calendar & History)
+  Widget _buildDrawer() {
+    final selectedDateSessions = _sessionLogs.where((log) {
+      return _isSameWorkDate(log.dateTime, _selectedCalendarDate);
+    }).toList();
 
-  // PORTRAIT LAYOUT - Fully fits on screen (No Scroll)
+    return Drawer(
+      child: Column(
+        children: [
+          UserAccountsDrawerHeader(
+            decoration: const BoxDecoration(color: Colors.blueAccent),
+            accountName: const Text(
+              'Pomodoro Statistics',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            accountEmail: Text(
+              'Lifetime Focus: ${_calculateTotalDuration(_sessionLogs)}',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.white90),
+            ),
+            currentAccountPicture: const CircleAvatar(
+              backgroundColor: Colors.white,
+              child: Icon(Icons.calendar_month, size: 36, color: Colors.blueAccent),
+            ),
+          ),
+
+          ExpansionTile(
+            leading: const Icon(Icons.calendar_today, color: Colors.blueAccent),
+            title: Text(
+              'Date: ${_formatDateOnly(_selectedCalendarDate)}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            subtitle: const Text('Tap to select a date', style: TextStyle(fontSize: 12, color: Colors.white60)),
+            initiallyExpanded: true,
+            children: [
+              SizedBox(
+                height: 300,
+                child: CalendarDatePicker(
+                  initialDate: _selectedCalendarDate,
+                  firstDate: DateTime(2023, 1, 1),
+                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                  onDateChanged: (DateTime newDate) {
+                    setState(() {
+                      _selectedCalendarDate = newDate;
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+
+          const Divider(height: 1),
+
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Date: ${_formatDateOnly(_selectedCalendarDate)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Total Time: ${_calculateTotalDuration(selectedDateSessions)}',
+                        style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.greenAccent, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_sessionLogs.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                    tooltip: 'Clear All History',
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Clear History'),
+                          content: const Text('Are you sure you want to delete all session history?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                _clearHistory();
+                                Navigator.pop(ctx);
+                              },
+                              child: const Text('Clear All', style: TextStyle(color: Colors.redAccent)),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+
+          Expanded(
+            child: selectedDateSessions.isEmpty
+                ? const Center(
+                    child: Text(
+                      'No sessions recorded on this date.',
+                      style: TextStyle(color: Colors.white54),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: selectedDateSessions.length,
+                    itemBuilder: (context, index) {
+                      final log = selectedDateSessions[index];
+                      return ListTile(
+                        leading: const Icon(Icons.check_circle_outline, color: Colors.greenAccent),
+                        title: Text(
+                          'Work Session: ${log.durationMinutes} mins',
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                        subtitle: Text(
+                          _formatDateTime(log.dateTime),
+                          style: const TextStyle(fontSize: 12, color: Colors.white60),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // PORTRAIT LAYOUT
   Widget _buildPortraitLayout() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        // Mode selector pill
         GestureDetector(
           onTap: _showCustomTimeDialog,
           child: Container(
@@ -463,7 +686,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
           ),
         ),
 
-        // Work/Break Badge
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
           decoration: BoxDecoration(
@@ -476,7 +698,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
           ),
         ),
 
-        // Timer display (Scales down dynamically to fit screen)
         GestureDetector(
           onTap: _showCustomTimeDialog,
           child: Column(
@@ -498,7 +719,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
           ),
         ),
 
-        // Session counter
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
@@ -506,33 +726,34 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             borderRadius: BorderRadius.circular(15),
             border: Border.all(color: Colors.white24),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+          child: Column(
             children: [
-              const Text(
-                '🍅 Completed Sessions: ',
-                style: TextStyle(fontSize: 15, color: Colors.white70),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '🍅 Today\'s Sessions: ',
+                    style: TextStyle(fontSize: 15, color: Colors.white70),
+                  ),
+                  Text(
+                    '$_todaySessionsCount',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.redAccent,
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 2),
               Text(
-                '$_completedSessions',
-                style: const TextStyle(
-                  fontSize: 18, 
-                  fontWeight: FontWeight.bold, 
-                  color: Colors.redAccent,
-                ),
+                '(Resets daily at 4:00 AM)',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
               ),
-              if (_completedSessions > 0) ...[
-                const SizedBox(width: 10),
-                GestureDetector(
-                  onTap: () => setState(() => _completedSessions = 0),
-                  child: const Icon(Icons.refresh, size: 18, color: Colors.grey),
-                ),
-              ]
             ],
           ),
         ),
 
-        // Controls (Start / Pause / Reset)
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -555,11 +776,10 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     );
   }
 
-  // LANDSCAPE LAYOUT - Fully fits on screen (No Scroll)
+  // LANDSCAPE LAYOUT
   Widget _buildLandscapeLayout() {
     return Row(
       children: [
-        // Left Column: Status Badge & Large Timer
         Expanded(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -601,7 +821,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
 
         const VerticalDivider(width: 1, color: Colors.white24, indent: 10, endIndent: 10),
 
-        // Right Column: Mode, Sessions, Controls
         Expanded(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -636,28 +855,29 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.white24),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                child: Column(
                   children: [
-                    const Text(
-                      '🍅 Sessions: ',
-                      style: TextStyle(fontSize: 13, color: Colors.white70),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          '🍅 Today: ',
+                          style: TextStyle(fontSize: 13, color: Colors.white70),
+                        ),
+                        Text(
+                          '$_todaySessionsCount',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.redAccent,
+                          ),
+                        ),
+                      ],
                     ),
                     Text(
-                      '$_completedSessions',
-                      style: const TextStyle(
-                        fontSize: 16, 
-                        fontWeight: FontWeight.bold, 
-                        color: Colors.redAccent,
-                      ),
+                      '(Resets at 04:00 AM)',
+                      style: TextStyle(fontSize: 10, color: Colors.grey.shade400),
                     ),
-                    if (_completedSessions > 0) ...[
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: () => setState(() => _completedSessions = 0),
-                        child: const Icon(Icons.refresh, size: 16, color: Colors.grey),
-                      ),
-                    ]
                   ],
                 ),
               ),
@@ -741,6 +961,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
           ),
         ],
       ),
+      drawer: _buildDrawer(),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(12.0),
