@@ -111,6 +111,14 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     return w1.year == w2.year && w1.month == w2.month && w1.day == w2.day;
   }
 
+  // Compare log's work date directly with the calendar selected date
+  bool _isLogOnCalendarDate(DateTime logDt, DateTime calendarDt) {
+    DateTime workDate = _getWorkDate(logDt);
+    return workDate.year == calendarDt.year &&
+        workDate.month == calendarDt.month &&
+        workDate.day == calendarDt.day;
+  }
+
   // Count sessions completed for "Today" (since 4:00 AM today)
   int get _todaySessionsCount {
     DateTime now = DateTime.now();
@@ -525,7 +533,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     // NAVIGATION DRAWER (Three-bar Menu with Calendar & History)
   Widget _buildDrawer() {
     final selectedDateSessions = _sessionLogs.where((log) {
-      return _isSameWorkDate(log.dateTime, _selectedCalendarDate);
+      return _isLogOnCalendarDate(log.dateTime, _selectedCalendarDate);
     }).toList();
 
     return Drawer(
