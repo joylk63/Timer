@@ -67,6 +67,12 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   // Track system clock for background accuracy
   DateTime? _targetEndTime;
 
+  // New Variables for Overtime tracking
+  bool _isOvertime = false;
+  int _overtimeSeconds = 0;
+  bool _isBreakOvertime = false;
+  int _breakOvertimeSeconds = 0;
+
   // List to store completed session logs
   List<SessionEntry> _sessionLogs = [];
 
@@ -208,29 +214,55 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     } catch (_) {}
   }
 
+  // TIMER LOGIC WITH OVERTIME SUPPORT
   void _updateRemainingTime() {
     if (_targetEndTime == null) return;
 
     final now = DateTime.now();
-    final difference = _targetEndTime!.difference(now).inSeconds;
 
     setState(() {
-      if (difference > 0) {
-        _timeLeft = difference;
-      } else {
-        _playBeepSound();
+      if (_isWorkTime) {
+        if (!_isOvertime) {
+          final difference = _targetEndTime!.difference(now).inSeconds;
+          if (difference > 0) {
+            _timeLeft = difference;
+          } else {
+            // Work time completed: play beep, save log, start counting overtime (+)
+            _timeLeft = 0;
+            _isOvertime = true;
+            _overtimeSeconds = 0;
+            _playBeepSound();
 
-        if (_isWorkTime) {
-          _sessionLogs.insert(
-            0,
-            SessionEntry(dateTime: DateTime.now(), durationMinutes: _workMinutes),
-          );
-          _saveSessionLogs();
+            _sessionLogs.insert(
+              0,
+              SessionEntry(dateTime: DateTime.now(), durationMinutes: _workMinutes),
+            );
+            _saveSessionLogs();
+
+            _targetEndTime = DateTime.now();
+          }
+        } else {
+          // Counting up overtime seconds for Work session
+          _overtimeSeconds = now.difference(_targetEndTime!).inSeconds;
         }
+      } else {
+        if (!_isBreakOvertime) {
+          final difference = _targetEndTime!.difference(now).inSeconds;
+          if (difference > 0) {
+            _timeLeft = difference;
+          } else {
+            // Break time completed: play beep, start counting break overtime (-)
+            _timeLeft = 0;
+            _isBreakOvertime = true;
+            _breakOvertimeSeconds = 0;
+            _playBeepSound();
 
-        _isWorkTime = !_isWorkTime;
-        _timeLeft = _isWorkTime ? workTimeSeconds : breakTimeSeconds;
-        _targetEndTime = DateTime.now().add(Duration(seconds: _timeLeft));
+            _targetEndTime = DateTime.now();
+          }
+        } else {
+          // Counting up break overtime seconds (will render with minus -)
+          _breakOvertimeSeconds = now.difference(_targetEndTime!).inSeconds;
+        }
       }
     });
   }
@@ -238,7 +270,21 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   void _startTimer() {
     if (_timer != null) _timer!.cancel();
 
-    _targetEndTime = DateTime.now().add(Duration(seconds: _timeLeft));
+    final now = DateTime.now();
+    if (_isWorkTime) {
+      if (!_isOvertime) {
+        _targetEndTime = now.add(Duration(seconds: _timeLeft));
+      } else {
+        _targetEndTime = now.subtract(Duration(seconds: _overtimeSeconds));
+      }
+    } else {
+      if (!_isBreakOvertime) {
+        _targetEndTime = now.add(Duration(seconds: _timeLeft));
+      } else {
+        _targetEndTime = now.subtract(Duration(seconds: _breakOvertimeSeconds));
+      }
+    }
+
     setState(() => _isRunning = true);
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -250,7 +296,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     _timer?.cancel();
     setState(() {
       _isRunning = false;
-      _targetEndTime = null;
     });
   }
 
@@ -259,8 +304,60 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     setState(() {
       _isRunning = false;
       _isWorkTime = true;
+      _isOvertime = false;
+      _overtimeSeconds = 0;
+      _isBreakOvertime = false;
+      _breakOvertimeSeconds = 0;
       _timeLeft = workTimeSeconds;
       _targetEndTime = null;
+    });
+  }
+
+  // Switch from Work Overtime to Break Time and include Overtime in Statistics
+  void _startBreakTime() {
+    _timer?.cancel();
+
+    // If there is overtime, add the extra minutes to the last session log
+    if (_overtimeSeconds >= 60 && _sessionLogs.isNotEmpty) {
+      int extraMinutes = _overtimeSeconds ~/ 60; // Convert overtime seconds to full minutes
+      
+      setState(() {
+        _sessionLogs[0] = SessionEntry(
+          dateTime: _sessionLogs[0].dateTime,
+          durationMinutes: _sessionLogs[0].durationMinutes + extraMinutes,
+        );
+      });
+      _saveSessionLogs(); // Save updated duration to storage
+    }
+
+    setState(() {
+      _isWorkTime = false;
+      _isOvertime = false;
+      _overtimeSeconds = 0;
+      _isBreakOvertime = false;
+      _breakOvertimeSeconds = 0;
+      _timeLeft = breakTimeSeconds;
+      _targetEndTime = DateTime.now().add(Duration(seconds: _timeLeft));
+      _isRunning = true;
+    });
+
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      _updateRemainingTime();
+    });
+  }
+
+  // Stop Break Time and Return to Work Mode
+  void _stopBreakTime() {
+    _timer?.cancel();
+    setState(() {
+      _isWorkTime = true;
+      _isOvertime = false;
+      _overtimeSeconds = 0;
+      _isBreakOvertime = false;
+      _breakOvertimeSeconds = 0;
+      _timeLeft = workTimeSeconds;
+      _targetEndTime = null;
+      _isRunning = false;
     });
   }
 
@@ -286,6 +383,36 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
       return '$hours hrs $minutes mins';
     }
     return '$minutes mins';
+  }
+
+  String _getDisplayTimeText() {
+    if (_isWorkTime) {
+      if (!_isOvertime) {
+        return _formatTime(_timeLeft);
+      } else {
+        return '+ ${_formatTime(_overtimeSeconds)}';
+      }
+    } else {
+      if (!_isBreakOvertime) {
+        return _formatTime(_timeLeft);
+      } else {
+        return '- ${_formatTime(_breakOvertimeSeconds)}';
+      }
+    }
+  }
+
+  Color _getDisplayTimeColor() {
+    if (_isWorkTime) {
+      if (_isOvertime) {
+        return Colors.redAccent;
+      }
+      return Colors.white;
+    } else {
+      if (_isBreakOvertime) {
+        return Colors.orangeAccent;
+      }
+      return Colors.greenAccent;
+    }
   }
 
   void _changeOrientation(String mode) {
@@ -448,6 +575,10 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                       _breakMinutes = tempBreak;
                       _isRunning = false;
                       _isWorkTime = true;
+                      _isOvertime = false;
+                      _overtimeSeconds = 0;
+                      _isBreakOvertime = false;
+                      _breakOvertimeSeconds = 0;
                       _timeLeft = workTimeSeconds;
                       _targetEndTime = null;
                     });
@@ -697,34 +828,57 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
           decoration: BoxDecoration(
-            color: _isWorkTime ? Colors.redAccent : Colors.green,
+            color: _isWorkTime
+                ? (_isOvertime ? Colors.red.shade900 : Colors.redAccent)
+                : (_isBreakOvertime ? Colors.orange.shade800 : Colors.green),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
-            _isWorkTime ? 'Work Time' : 'Break Time',
+            _isWorkTime
+                ? (_isOvertime ? 'Work Overtime' : 'Work Time')
+                : (_isBreakOvertime ? 'Break Overtime' : 'Break Time'),
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
         ),
 
-        GestureDetector(
-          onTap: _showCustomTimeDialog,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  _formatTime(_timeLeft),
-                  style: const TextStyle(fontSize: 80, fontWeight: FontWeight.bold),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                _getDisplayTimeText(),
+                style: TextStyle(
+                  fontSize: 76,
+                  fontWeight: FontWeight.bold,
+                  color: _getDisplayTimeColor(),
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                '💡 Tap timer to adjust custom minutes',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+            ),
+            const SizedBox(height: 6),
+            if (_isWorkTime && _isOvertime)
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                ),
+                onPressed: _startBreakTime,
+                icon: const Icon(Icons.play_arrow, color: Colors.white),
+                label: const Text('Start Break', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
               ),
-            ],
-          ),
+            if (!_isWorkTime)
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blueAccent,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                ),
+                onPressed: _stopBreakTime,
+                icon: const Icon(Icons.stop, color: Colors.white),
+                label: const Text('Stop Break / Resume Work', style: TextStyle(fontSize: 15, color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+          ],
         ),
 
         Container(
@@ -795,32 +949,27 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 decoration: BoxDecoration(
-                  color: _isWorkTime ? Colors.redAccent : Colors.green,
+                  color: _isWorkTime
+                      ? (_isOvertime ? Colors.red.shade900 : Colors.redAccent)
+                      : (_isBreakOvertime ? Colors.orange.shade800 : Colors.green),
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: Text(
-                  _isWorkTime ? 'Work Time' : 'Break Time',
+                  _isWorkTime
+                      ? (_isOvertime ? 'Work Overtime' : 'Work Time')
+                      : (_isBreakOvertime ? 'Break Overtime' : 'Break Time'),
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ),
-              GestureDetector(
-                onTap: _showCustomTimeDialog,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        _formatTime(_timeLeft),
-                        style: const TextStyle(fontSize: 68, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '💡 Tap timer to adjust minutes',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
-                    ),
-                  ],
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  _getDisplayTimeText(),
+                  style: TextStyle(
+                    fontSize: 64,
+                    fontWeight: FontWeight.bold,
+                    color: _getDisplayTimeColor(),
+                  ),
                 ),
               ),
             ],
@@ -855,6 +1004,28 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                   ),
                 ),
               ),
+
+              if (_isWorkTime && _isOvertime)
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  ),
+                  onPressed: _startBreakTime,
+                  icon: const Icon(Icons.play_arrow, color: Colors.white, size: 18),
+                  label: const Text('Start Break', style: TextStyle(fontSize: 14, color: Colors.white)),
+                ),
+
+              if (!_isWorkTime)
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  ),
+                  onPressed: _stopBreakTime,
+                  icon: const Icon(Icons.stop, color: Colors.white, size: 18),
+                  label: const Text('Stop Break / Resume Work', style: TextStyle(fontSize: 13, color: Colors.white)),
+                ),
 
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
