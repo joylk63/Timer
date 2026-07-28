@@ -2,22 +2,44 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const PomodoroApp());
 }
 
-// Session Model Class for JSON Serialization
+class PomodoroApp extends StatelessWidget {
+  const PomodoroApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Pomodoro Timer',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xFF121212),
+        primaryColor: Colors.blueAccent,
+      ),
+      home: const PomodoroHomeScreen(),
+    );
+  }
+}
+
+// Model class for storing completed timer sessions
 class SessionEntry {
   final DateTime dateTime;
   final int durationMinutes;
 
-  SessionEntry({required this.dateTime, required this.durationMinutes});
+  SessionEntry({
+    required this.dateTime,
+    required this.durationMinutes,
+  });
 
   Map<String, dynamic> toJson() => {
         'dateTime': dateTime.toIso8601String(),
@@ -30,60 +52,41 @@ class SessionEntry {
       );
 }
 
-class PomodoroApp extends StatelessWidget {
-  const PomodoroApp({super.key});
+class PomodoroHomeScreen extends StatefulWidget {
+  const PomodoroHomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Pomodoro Timer',
-      theme: ThemeData.dark(),
-      home: const PomodoroScreen(),
-    );
-  }
+  State<PomodoroHomeScreen> createState() => _PomodoroHomeScreenState();
 }
 
-class PomodoroScreen extends StatefulWidget {
-  const PomodoroScreen({super.key});
-
-  @override
-  State<PomodoroScreen> createState() => _PomodoroScreenState();
-}
-
-class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObserver {
-  // Custom durations in minutes
+class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
+    with WidgetsBindingObserver {
+  // Timer Duration Settings (in minutes)
   int _workMinutes = 25;
   int _breakMinutes = 5;
 
   int get workTimeSeconds => _workMinutes * 60;
   int get breakTimeSeconds => _breakMinutes * 60;
 
-  late int _timeLeft;
+  // Timer State Variables
+  int _timeLeft = 25 * 60;
+  Timer? _timer;
   bool _isRunning = false;
   bool _isWorkTime = true;
-  Timer? _timer;
 
-  // Track system clock for background accuracy
-  DateTime? _targetEndTime;
-
-  // New Variables for Overtime tracking
+  // Overtime Tracking Variables
   bool _isOvertime = false;
   int _overtimeSeconds = 0;
+
   bool _isBreakOvertime = false;
   int _breakOvertimeSeconds = 0;
 
-  // List to store completed session logs
+  DateTime? _targetEndTime;
+
+  // Storage & Audio Variables
   List<SessionEntry> _sessionLogs = [];
-
-  // Selected date in calendar view
-  DateTime _selectedCalendarDate = DateTime.now();
-
-  // Current orientation mode tracker
-  String _currentOrientation = 'auto'; // 'portrait', 'landscape', 'auto'
-
-  // Audio player instance
   final AudioPlayer _audioPlayer = AudioPlayer();
+  String _currentOrientation = 'auto';
 
   @override
   void initState() {
@@ -98,66 +101,30 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _audioPlayer.dispose();
+    WakelockPlus.disable(); // Ensure screen wake lock is turned off on exit
     super.dispose();
   }
 
-  // Calculate "Work Date" considering 4:00 AM as the reset boundary
-  DateTime _getWorkDate(DateTime dt) {
-    if (dt.hour < 4) {
-      DateTime yesterday = dt.subtract(const Duration(days: 1));
-      return DateTime(yesterday.year, yesterday.month, yesterday.day);
-    } else {
-      return DateTime(dt.year, dt.month, dt.day);
-    }
-  }
-
-  bool _isSameWorkDate(DateTime dt1, DateTime dt2) {
-    DateTime w1 = _getWorkDate(dt1);
-    DateTime w2 = _getWorkDate(dt2);
-    return w1.year == w2.year && w1.month == w2.month && w1.day == w2.day;
-  }
-
-  // Compare log's work date directly with the calendar selected date
-  bool _isLogOnCalendarDate(DateTime logDt, DateTime calendarDt) {
-    DateTime workDate = _getWorkDate(logDt);
-    return workDate.year == calendarDt.year &&
-        workDate.month == calendarDt.month &&
-        workDate.day == calendarDt.day;
-  }
-
-  // Count sessions completed for "Today" (since 4:00 AM today)
-  int get _todaySessionsCount {
-    DateTime now = DateTime.now();
-    return _sessionLogs.where((log) => _isSameWorkDate(log.dateTime, now)).length;
-  }
-
-  // Load saved session logs from Local Storage
+  // Load saved session history from SharedPreferences
   Future<void> _loadSessionLogs() async {
     final prefs = await SharedPreferences.getInstance();
-    final List<String>? rawLogs = prefs.getStringList('pomodoro_logs');
-    if (rawLogs != null) {
+    final String? logsString = prefs.getString('pomodoro_session_logs');
+    if (logsString != null) {
+      final List<dynamic> decoded = jsonDecode(logsString);
       setState(() {
-        _sessionLogs = rawLogs.map((item) => SessionEntry.fromJson(jsonDecode(item))).toList();
+        _sessionLogs = decoded.map((e) => SessionEntry.fromJson(e)).toList();
       });
     }
   }
 
-  // Save session logs to Local Storage
+  // Save updated session history to SharedPreferences
   Future<void> _saveSessionLogs() async {
     final prefs = await SharedPreferences.getInstance();
-    final List<String> rawLogs = _sessionLogs.map((item) => jsonEncode(item.toJson())).toList();
-    await prefs.setStringList('pomodoro_logs', rawLogs);
+    final String encoded =
+        jsonEncode(_sessionLogs.map((e) => e.toJson()).toList());
+    await prefs.setString('pomodoro_session_logs', encoded);
   }
-
-  // Clear history logs
-  Future<void> _clearHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('pomodoro_logs');
-    setState(() {
-      _sessionLogs.clear();
-    });
-  }
-    @override
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _isRunning && _targetEndTime != null) {
       _updateRemainingTime();
@@ -260,7 +227,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             _targetEndTime = DateTime.now();
           }
         } else {
-          // Counting up break overtime seconds (will render with minus -)
+          // Counting up break overtime seconds (renders with minus -)
           _breakOvertimeSeconds = now.difference(_targetEndTime!).inSeconds;
         }
       }
@@ -269,6 +236,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
 
   void _startTimer() {
     if (_timer != null) _timer!.cancel();
+
+    // Keep screen ON while timer is running
+    WakelockPlus.enable();
 
     final now = DateTime.now();
     if (_isWorkTime) {
@@ -294,6 +264,10 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
 
   void _pauseTimer() {
     _timer?.cancel();
+
+    // Disable screen wake lock when timer is paused
+    WakelockPlus.disable();
+
     setState(() {
       _isRunning = false;
     });
@@ -301,6 +275,10 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
 
   void _resetTimer() {
     _timer?.cancel();
+
+    // Disable screen wake lock when timer is reset
+    WakelockPlus.disable();
+
     setState(() {
       _isRunning = false;
       _isWorkTime = true;
@@ -316,6 +294,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   // Switch from Work Overtime to Break Time and include Overtime in Statistics
   void _startBreakTime() {
     _timer?.cancel();
+
+    // Keep screen ON during Break Time
+    WakelockPlus.enable();
 
     // If there is overtime, add the extra minutes to the last session log
     if (_overtimeSeconds >= 60 && _sessionLogs.isNotEmpty) {
@@ -349,6 +330,10 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   // Stop Break Time and Return to Work Mode
   void _stopBreakTime() {
     _timer?.cancel();
+
+    // Disable screen wake lock when break time stops
+    WakelockPlus.disable();
+
     setState(() {
       _isWorkTime = true;
       _isOvertime = false;
@@ -661,497 +646,240 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
       },
     );
   }
-    // NAVIGATION DRAWER (Three-bar Menu with Calendar & History)
-  Widget _buildDrawer() {
-    final selectedDateSessions = _sessionLogs.where((log) {
-      return _isLogOnCalendarDate(log.dateTime, _selectedCalendarDate);
-    }).toList();
-
-    return Drawer(
-      child: Column(
-        children: [
-          UserAccountsDrawerHeader(
-            decoration: const BoxDecoration(color: Colors.blueAccent),
-            accountName: const Text(
-              'Pomodoro Statistics',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            accountEmail: Text(
-              'Lifetime Focus: ${_calculateTotalDuration(_sessionLogs)}',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.white70),
-            ),
-            currentAccountPicture: const CircleAvatar(
-              backgroundColor: Colors.white,
-              child: Icon(Icons.calendar_month, size: 36, color: Colors.blueAccent),
-            ),
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pomodoro Timer', style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.screen_rotation, color: Colors.blueAccent),
+            onPressed: _showOrientationDialog,
+            tooltip: 'Screen Mode',
           ),
-
-          ExpansionTile(
-            leading: const Icon(Icons.calendar_today, color: Colors.blueAccent),
-            title: Text(
-              'Date: ${_formatDateOnly(_selectedCalendarDate)}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-            ),
-            subtitle: const Text('Tap to select a date', style: TextStyle(fontSize: 12, color: Colors.white60)),
-            initiallyExpanded: true,
-            children: [
-              SizedBox(
-                height: 300,
-                child: CalendarDatePicker(
-                  initialDate: _selectedCalendarDate,
-                  firstDate: DateTime(2023, 1, 1),
-                  lastDate: DateTime.now().add(const Duration(days: 365)),
-                  onDateChanged: (DateTime newDate) {
-                    setState(() {
-                      _selectedCalendarDate = newDate;
-                    });
-                  },
-                ),
-              ),
-            ],
+          IconButton(
+            icon: const Icon(Icons.tune, color: Colors.blueAccent),
+            onPressed: _showCustomTimeDialog,
+            tooltip: 'Custom Timer',
           ),
-
-          const Divider(height: 1),
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Date: ${_formatDateOnly(_selectedCalendarDate)}',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Total Time: ${_calculateTotalDuration(selectedDateSessions)}',
-                        style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.greenAccent, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_sessionLogs.isNotEmpty)
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                    tooltip: 'Clear All History',
-                    onPressed: () {
-                      showDialog(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Clear History'),
-                          content: const Text('Are you sure you want to delete all session history?'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx),
-                              child: const Text('Cancel'),
-                            ),
-                            TextButton(
-                              onPressed: () {
-                                _clearHistory();
-                                Navigator.pop(ctx);
-                              },
-                              child: const Text('Clear All', style: TextStyle(color: Colors.redAccent)),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-
-          Expanded(
-            child: selectedDateSessions.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No sessions recorded on this date.',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: selectedDateSessions.length,
-                    itemBuilder: (context, index) {
-                      final log = selectedDateSessions[index];
-                      return ListTile(
-                        leading: const Icon(Icons.check_circle_outline, color: Colors.greenAccent),
-                        title: Text(
-                          'Work Session: ${log.durationMinutes} mins',
-                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                        ),
-                        subtitle: Text(
-                          _formatDateTime(log.dateTime),
-                          style: const TextStyle(fontSize: 12, color: Colors.white60),
-                        ),
-                      );
-                    },
-                  ),
+          IconButton(
+            icon: const Icon(Icons.info_outline, color: Colors.blueAccent),
+            onPressed: _showAboutDialog,
+            tooltip: 'About Developer',
           ),
         ],
       ),
-    );
-  }
-
-  // PORTRAIT LAYOUT
-  Widget _buildPortraitLayout() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        GestureDetector(
-          onTap: _showCustomTimeDialog,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.blueGrey.shade800,
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: Colors.blueAccent, width: 1.5),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.timer_outlined, color: Colors.blueAccent),
-                const SizedBox(width: 8),
-                Text(
-                  'Mode: $_workMinutes + $_breakMinutes Min (Tap to change)',
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-          decoration: BoxDecoration(
-            color: _isWorkTime
-                ? (_isOvertime ? Colors.red.shade900 : Colors.redAccent)
-                : (_isBreakOvertime ? Colors.orange.shade800 : Colors.green),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            _isWorkTime
-                ? (_isOvertime ? 'Work Overtime' : 'Work Time')
-                : (_isBreakOvertime ? 'Break Overtime' : 'Break Time'),
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-        ),
-
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                _getDisplayTimeText(),
-                style: TextStyle(
-                  fontSize: 76,
-                  fontWeight: FontWeight.bold,
-                  color: _getDisplayTimeColor(),
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            if (_isWorkTime && _isOvertime)
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                ),
-                onPressed: _startBreakTime,
-                icon: const Icon(Icons.play_arrow, color: Colors.white),
-                label: const Text('Start Break', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-            if (!_isWorkTime)
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueAccent,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                ),
-                onPressed: _stopBreakTime,
-                icon: const Icon(Icons.stop, color: Colors.white),
-                label: const Text('Stop Break / Resume Work', style: TextStyle(fontSize: 15, color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-          ],
-        ),
-
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white12,
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: Colors.white24),
-          ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(
             children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    '🍅 Today\'s Sessions: ',
-                    style: TextStyle(fontSize: 15, color: Colors.white70),
-                  ),
-                  Text(
-                    '$_todaySessionsCount',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.redAccent,
+              // TIMER DISPLAY CARD
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 35, horizontal: 20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.4),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 2),
-              Text(
-                '(Resets daily at 4:00 AM)',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
-              ),
-            ],
-          ),
-        ),
-
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            IconButton(
-              iconSize: 64,
-              icon: Icon(_isRunning ? Icons.pause_circle_filled : Icons.play_circle_fill),
-              color: Colors.blueAccent,
-              onPressed: _isRunning ? _pauseTimer : _startTimer,
-            ),
-            const SizedBox(width: 20),
-            IconButton(
-              iconSize: 48,
-              icon: const Icon(Icons.replay),
-              color: Colors.grey,
-              onPressed: _resetTimer,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // LANDSCAPE LAYOUT
-  Widget _buildLandscapeLayout() {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                decoration: BoxDecoration(
-                  color: _isWorkTime
-                      ? (_isOvertime ? Colors.red.shade900 : Colors.redAccent)
-                      : (_isBreakOvertime ? Colors.orange.shade800 : Colors.green),
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Text(
-                  _isWorkTime
-                      ? (_isOvertime ? 'Work Overtime' : 'Work Time')
-                      : (_isBreakOvertime ? 'Break Overtime' : 'Break Time'),
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  _getDisplayTimeText(),
-                  style: TextStyle(
-                    fontSize: 64,
-                    fontWeight: FontWeight.bold,
-                    color: _getDisplayTimeColor(),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const VerticalDivider(width: 1, color: Colors.white24, indent: 10, endIndent: 10),
-
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              GestureDetector(
-                onTap: _showCustomTimeDialog,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.blueGrey.shade800,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blueAccent, width: 1),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.timer_outlined, color: Colors.blueAccent, size: 18),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Mode: $_workMinutes + $_breakMinutes Min',
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              if (_isWorkTime && _isOvertime)
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  ),
-                  onPressed: _startBreakTime,
-                  icon: const Icon(Icons.play_arrow, color: Colors.white, size: 18),
-                  label: const Text('Start Break', style: TextStyle(fontSize: 14, color: Colors.white)),
-                ),
-
-              if (!_isWorkTime)
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueAccent,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  ),
-                  onPressed: _stopBreakTime,
-                  icon: const Icon(Icons.stop, color: Colors.white, size: 18),
-                  label: const Text('Stop Break / Resume Work', style: TextStyle(fontSize: 13, color: Colors.white)),
-                ),
-
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white12,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white24),
+                  ],
                 ),
                 child: Column(
                   children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          '🍅 Today: ',
-                          style: TextStyle(fontSize: 13, color: Colors.white70),
+                    // Mode Tag Badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _isWorkTime
+                            ? (_isOvertime ? Colors.redAccent.withOpacity(0.2) : Colors.blueAccent.withOpacity(0.2))
+                            : (_isBreakOvertime ? Colors.orangeAccent.withOpacity(0.2) : Colors.greenAccent.withOpacity(0.2)),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _isWorkTime
+                            ? (_isOvertime ? 'WORK OVERTIME' : 'WORK TIME')
+                            : (_isBreakOvertime ? 'BREAK OVERTIME' : 'BREAK TIME'),
+                        style: TextStyle(
+                          color: _isWorkTime
+                              ? (_isOvertime ? Colors.redAccent : Colors.blueAccent)
+                              : (_isBreakOvertime ? Colors.orangeAccent : Colors.greenAccent),
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
                         ),
-                        Text(
-                          '$_todaySessionsCount',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.redAccent,
+                      ),
+                    ),
+                    const SizedBox(height: 25),
+
+                    // Big Countdown Display
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        _getDisplayTimeText(),
+                        style: TextStyle(
+                          fontSize: 68,
+                          fontWeight: FontWeight.bold,
+                          color: _getDisplayTimeColor(),
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 25),
+
+                    // Control Action Buttons
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (!_isRunning)
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            onPressed: _startTimer,
+                            icon: const Icon(Icons.play_arrow, color: Colors.white),
+                            label: const Text('Start', style: TextStyle(color: Colors.white, fontSize: 16)),
+                          )
+                        else
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orange,
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            onPressed: _pauseTimer,
+                            icon: const Icon(Icons.pause, color: Colors.white),
+                            label: const Text('Pause', style: TextStyle(color: Colors.white, fontSize: 16)),
                           ),
+                        const SizedBox(width: 12),
+
+                        // Switch to Break / Return to Work Buttons
+                        if (_isWorkTime)
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blueAccent,
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            onPressed: _startBreakTime,
+                            icon: const Icon(Icons.coffee, color: Colors.white),
+                            label: const Text('Start Break', style: TextStyle(color: Colors.white, fontSize: 15)),
+                          )
+                        else
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.purpleAccent,
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            onPressed: _stopBreakTime,
+                            icon: const Icon(Icons.work, color: Colors.white),
+                            label: const Text('Work Mode', style: TextStyle(color: Colors.white, fontSize: 15)),
+                          ),
+                        const SizedBox(width: 12),
+
+                        // Reset Button
+                        IconButton(
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.white10,
+                            padding: const EdgeInsets.all(12),
+                          ),
+                          onPressed: _resetTimer,
+                          icon: const Icon(Icons.refresh, color: Colors.white70),
+                          tooltip: 'Reset Timer',
                         ),
                       ],
-                    ),
-                    Text(
-                      '(Resets at 04:00 AM)',
-                      style: TextStyle(fontSize: 10, color: Colors.grey.shade400),
                     ),
                   ],
                 ),
               ),
 
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    iconSize: 56,
-                    icon: Icon(_isRunning ? Icons.pause_circle_filled : Icons.play_circle_fill),
-                    color: Colors.blueAccent,
-                    onPressed: _isRunning ? _pauseTimer : _startTimer,
-                  ),
-                  const SizedBox(width: 16),
-                  IconButton(
-                    iconSize: 42,
-                    icon: const Icon(Icons.replay),
-                    color: Colors.grey,
-                    onPressed: _resetTimer,
-                  ),
-                ],
+              const SizedBox(height: 25),
+
+              // STATISTICS & HISTORY SECTION
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.bar_chart, color: Colors.blueAccent),
+                            SizedBox(width: 8),
+                            Text(
+                              'Focus Statistics',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          'Total: ${_calculateTotalDuration(_sessionLogs)}',
+                          style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 25, color: Colors.white10),
+
+                    // Session Log History List
+                    _sessionLogs.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 20),
+                            child: Center(
+                              child: Text(
+                                'No completed sessions yet.',
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: _sessionLogs.length > 10 ? 10 : _sessionLogs.length,
+                            separatorBuilder: (context, index) => const Divider(color: Colors.white12),
+                            itemBuilder: (context, index) {
+                              final entry = _sessionLogs[index];
+                              return ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading: const CircleAvatar(
+                                  radius: 16,
+                                  backgroundColor: Colors.white10,
+                                  child: Icon(Icons.check, size: 16, color: Colors.greenAccent),
+                                ),
+                                title: Text(
+                                  '${entry.durationMinutes} Minutes Focused',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                ),
+                                subtitle: Text(
+                                  _formatDateTime(entry.dateTime),
+                                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                                ),
+                                trailing: Text(
+                                  _formatDateOnly(entry.dateTime),
+                                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                ),
+                              );
+                            },
+                          ),
+                  ],
+                ),
               ),
             ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Pomodoro Timer'),
-        centerTitle: true,
-        actions: [
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'custom_time') {
-                _showCustomTimeDialog();
-              } else if (value == 'orientation') {
-                _showOrientationDialog();
-              } else if (value == 'about') {
-                _showAboutDialog();
-              }
-            },
-            itemBuilder: (context) {
-              return [
-                const PopupMenuItem<String>(
-                  value: 'custom_time',
-                  child: Row(
-                    children: [
-                      Icon(Icons.tune, color: Colors.white70),
-                      SizedBox(width: 10),
-                      Text('Set Custom Time'),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem<String>(
-                  value: 'orientation',
-                  child: Row(
-                    children: [
-                      Icon(Icons.screen_rotation, color: Colors.white70),
-                      SizedBox(width: 10),
-                      Text('Screen Orientation'),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem<String>(
-                  value: 'about',
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline, color: Colors.white70),
-                      SizedBox(width: 10),
-                      Text('About Developer'),
-                    ],
-                  ),
-                ),
-              ];
-            },
-          ),
-        ],
-      ),
-      drawer: _buildDrawer(),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: OrientationBuilder(
-            builder: (context, orientation) {
-              if (orientation == Orientation.landscape) {
-                return _buildLandscapeLayout();
-              } else {
-                return _buildPortraitLayout();
-              }
-            },
           ),
         ),
       ),
