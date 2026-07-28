@@ -25,7 +25,7 @@ dev_dependencies:
 
 flutter_launcher_icons:
   android: true
-  ios: true
+  ios: false
   image_path: "ic_launcher.png"
 
 flutter:
