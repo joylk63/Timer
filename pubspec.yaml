@@ -1,5 +1,5 @@
 name: pomodoro_app
-description: "A complete Pomodoro Timer application with overtime tracking and statistics."
+description: "A complete Pomodoro Timer application with overtime tracking and wakelock support."
 publish_to: 'none'
 
 version: 1.0.0+1
