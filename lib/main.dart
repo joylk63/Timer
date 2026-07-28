@@ -31,7 +31,6 @@ class PomodoroApp extends StatelessWidget {
   }
 }
 
-// Model class for storing completed timer sessions
 class SessionEntry {
   final DateTime dateTime;
   final int durationMinutes;
@@ -61,20 +60,17 @@ class PomodoroHomeScreen extends StatefulWidget {
 
 class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
     with WidgetsBindingObserver {
-  // Timer Duration Settings (in minutes)
   int _workMinutes = 25;
   int _breakMinutes = 5;
 
   int get workTimeSeconds => _workMinutes * 60;
   int get breakTimeSeconds => _breakMinutes * 60;
 
-  // Timer State Variables
   int _timeLeft = 25 * 60;
   Timer? _timer;
   bool _isRunning = false;
   bool _isWorkTime = true;
 
-  // Overtime Tracking Variables
   bool _isOvertime = false;
   int _overtimeSeconds = 0;
 
@@ -83,7 +79,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
 
   DateTime? _targetEndTime;
 
-  // Storage & Audio Variables
   List<SessionEntry> _sessionLogs = [];
   final AudioPlayer _audioPlayer = AudioPlayer();
   String _currentOrientation = 'auto';
@@ -101,11 +96,10 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _audioPlayer.dispose();
-    WakelockPlus.disable(); // Ensure screen wake lock is turned off on exit
+    WakelockPlus.disable();
     super.dispose();
   }
 
-  // Load saved session history from SharedPreferences
   Future<void> _loadSessionLogs() async {
     final prefs = await SharedPreferences.getInstance();
     final String? logsString = prefs.getString('pomodoro_session_logs');
@@ -117,7 +111,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
     }
   }
 
-  // Save updated session history to SharedPreferences
   Future<void> _saveSessionLogs() async {
     final prefs = await SharedPreferences.getInstance();
     final String encoded =
@@ -131,7 +124,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
     }
   }
 
-  // Generate 880Hz PCM WAV audio bytes for Beep sound
   Uint8List _generateBeepWav() {
     const int sampleRate = 22050;
     const double frequency = 880.0;
@@ -142,11 +134,11 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
 
     final ByteData bytes = ByteData(fileSize);
 
-    bytes.setUint32(0, 0x52494646, Endian.big); // "RIFF"
+    bytes.setUint32(0, 0x52494646, Endian.big);
     bytes.setUint32(4, fileSize - 8, Endian.little);
-    bytes.setUint32(8, 0x57415645, Endian.big); // "WAVE"
+    bytes.setUint32(8, 0x57415645, Endian.big);
 
-    bytes.setUint32(12, 0x666d7420, Endian.big); // "fmt "
+    bytes.setUint32(12, 0x666d7420, Endian.big);
     bytes.setUint32(16, 16, Endian.little);
     bytes.setUint16(20, 1, Endian.little);
     bytes.setUint16(22, 1, Endian.little);
@@ -155,7 +147,7 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
     bytes.setUint16(32, 2, Endian.little);
     bytes.setUint16(34, 16, Endian.little);
 
-    bytes.setUint32(36, 0x64617461, Endian.big); // "data"
+    bytes.setUint32(36, 0x64617461, Endian.big);
     bytes.setUint32(40, dataSize, Endian.little);
 
     for (int i = 0; i < numSamples; i++) {
@@ -181,7 +173,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
     } catch (_) {}
   }
 
-  // TIMER LOGIC WITH OVERTIME SUPPORT
   void _updateRemainingTime() {
     if (_targetEndTime == null) return;
 
@@ -194,7 +185,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
           if (difference > 0) {
             _timeLeft = difference;
           } else {
-            // Work time completed: play beep, save log, start counting overtime (+)
             _timeLeft = 0;
             _isOvertime = true;
             _overtimeSeconds = 0;
@@ -209,7 +199,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
             _targetEndTime = DateTime.now();
           }
         } else {
-          // Counting up overtime seconds for Work session
           _overtimeSeconds = now.difference(_targetEndTime!).inSeconds;
         }
       } else {
@@ -218,7 +207,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
           if (difference > 0) {
             _timeLeft = difference;
           } else {
-            // Break time completed: play beep, start counting break overtime (-)
             _timeLeft = 0;
             _isBreakOvertime = true;
             _breakOvertimeSeconds = 0;
@@ -227,7 +215,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
             _targetEndTime = DateTime.now();
           }
         } else {
-          // Counting up break overtime seconds (renders with minus -)
           _breakOvertimeSeconds = now.difference(_targetEndTime!).inSeconds;
         }
       }
@@ -237,7 +224,7 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
   void _startTimer() {
     if (_timer != null) _timer!.cancel();
 
-    // Keep screen ON while timer is running
+    // Screen keeps ON while timer is running
     WakelockPlus.enable();
 
     final now = DateTime.now();
@@ -291,16 +278,14 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
     });
   }
 
-  // Switch from Work Overtime to Break Time and include Overtime in Statistics
   void _startBreakTime() {
     _timer?.cancel();
 
-    // Keep screen ON during Break Time
+    // Screen keeps ON during Break Time
     WakelockPlus.enable();
 
-    // If there is overtime, add the extra minutes to the last session log
     if (_overtimeSeconds >= 60 && _sessionLogs.isNotEmpty) {
-      int extraMinutes = _overtimeSeconds ~/ 60; // Convert overtime seconds to full minutes
+      int extraMinutes = _overtimeSeconds ~/ 60;
       
       setState(() {
         _sessionLogs[0] = SessionEntry(
@@ -308,7 +293,7 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
           durationMinutes: _sessionLogs[0].durationMinutes + extraMinutes,
         );
       });
-      _saveSessionLogs(); // Save updated duration to storage
+      _saveSessionLogs();
     }
 
     setState(() {
@@ -327,7 +312,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
     });
   }
 
-  // Stop Break Time and Return to Work Mode
   void _stopBreakTime() {
     _timer?.cancel();
 
@@ -645,8 +629,7 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
         );
       },
     );
-  }
-  @override
+  }  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -676,7 +659,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(
             children: [
-              // TIMER DISPLAY CARD
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 35, horizontal: 20),
@@ -693,7 +675,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
                 ),
                 child: Column(
                   children: [
-                    // Mode Tag Badge
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                       decoration: BoxDecoration(
@@ -716,8 +697,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
                       ),
                     ),
                     const SizedBox(height: 25),
-
-                    // Big Countdown Display
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
@@ -731,8 +710,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
                       ),
                     ),
                     const SizedBox(height: 25),
-
-                    // Control Action Buttons
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -759,8 +736,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
                             label: const Text('Pause', style: TextStyle(color: Colors.white, fontSize: 16)),
                           ),
                         const SizedBox(width: 12),
-
-                        // Switch to Break / Return to Work Buttons
                         if (_isWorkTime)
                           ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
@@ -784,8 +759,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
                             label: const Text('Work Mode', style: TextStyle(color: Colors.white, fontSize: 15)),
                           ),
                         const SizedBox(width: 12),
-
-                        // Reset Button
                         IconButton(
                           style: IconButton.styleFrom(
                             backgroundColor: Colors.white10,
@@ -800,10 +773,7 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
                   ],
                 ),
               ),
-
               const SizedBox(height: 25),
-
-              // STATISTICS & HISTORY SECTION
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -834,8 +804,6 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
                       ],
                     ),
                     const Divider(height: 25, color: Colors.white10),
-
-                    // Session Log History List
                     _sessionLogs.isEmpty
                         ? const Padding(
                             padding: EdgeInsets.symmetric(vertical: 20),
@@ -886,3 +854,4 @@ class _PomodoroHomeScreenState extends State<PomodoroHomeScreen>
     );
   }
 }
+
