@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart'; // Wakelock import
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -98,6 +99,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _audioPlayer.dispose();
+    WakelockPlus.disable(); // App বন্ধ বা স্ক্রিন ডিসপোজ হলে Wakelock অফ করা
     super.dispose();
   }
 
@@ -157,6 +159,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
       _sessionLogs.clear();
     });
   }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _isRunning && _targetEndTime != null) {
@@ -227,7 +230,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
           if (difference > 0) {
             _timeLeft = difference;
           } else {
-            // Work time completed: play beep, save log, start counting overtime (+)
             _timeLeft = 0;
             _isOvertime = true;
             _overtimeSeconds = 0;
@@ -242,7 +244,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             _targetEndTime = DateTime.now();
           }
         } else {
-          // Counting up overtime seconds for Work session
           _overtimeSeconds = now.difference(_targetEndTime!).inSeconds;
         }
       } else {
@@ -251,7 +252,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
           if (difference > 0) {
             _timeLeft = difference;
           } else {
-            // Break time completed: play beep, start counting break overtime (-)
             _timeLeft = 0;
             _isBreakOvertime = true;
             _breakOvertimeSeconds = 0;
@@ -260,7 +260,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             _targetEndTime = DateTime.now();
           }
         } else {
-          // Counting up break overtime seconds (will render with minus -)
           _breakOvertimeSeconds = now.difference(_targetEndTime!).inSeconds;
         }
       }
@@ -285,6 +284,8 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
       }
     }
 
+    WakelockPlus.enable(); // টাইমার চালু হলে স্ক্রিন অন রাখা হবে
+
     setState(() => _isRunning = true);
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -294,6 +295,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
 
   void _pauseTimer() {
     _timer?.cancel();
+    WakelockPlus.disable(); // টাইমার পজ হলে স্ক্রিন স্লিপ হতে পারবে
     setState(() {
       _isRunning = false;
     });
@@ -301,6 +303,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
 
   void _resetTimer() {
     _timer?.cancel();
+    WakelockPlus.disable(); // টাইমার রিসেট হলে Wakelock অফ
     setState(() {
       _isRunning = false;
       _isWorkTime = true;
@@ -316,6 +319,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   // Switch from Work Overtime to Break Time
   void _startBreakTime() {
     _timer?.cancel();
+    WakelockPlus.enable(); // ব্রেক টাইমেও স্ক্রিন অন থাকবে
     setState(() {
       _isWorkTime = false;
       _isOvertime = false;
@@ -335,6 +339,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   // Stop Break Time and Return to Work Mode
   void _stopBreakTime() {
     _timer?.cancel();
+    WakelockPlus.disable(); // ব্রেক থামালে Wakelock অফ
     setState(() {
       _isWorkTime = true;
       _isOvertime = false;
@@ -556,6 +561,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
                   onPressed: () {
                     _timer?.cancel();
+                    WakelockPlus.disable();
                     setState(() {
                       _workMinutes = tempWork;
                       _breakMinutes = tempBreak;
@@ -647,6 +653,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
       },
     );
   }
+
   // NAVIGATION DRAWER (Three-bar Menu with Calendar & History)
   Widget _buildDrawer() {
     final selectedDateSessions = _sessionLogs.where((log) {
@@ -671,7 +678,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               child: Icon(Icons.calendar_month, size: 36, color: Colors.blueAccent),
             ),
           ),
-
           ExpansionTile(
             leading: const Icon(Icons.calendar_today, color: Colors.blueAccent),
             title: Text(
@@ -696,9 +702,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               ),
             ],
           ),
-
           const Divider(height: 1),
-
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
@@ -751,7 +755,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             ),
           ),
           const Divider(height: 1),
-
           Expanded(
             child: selectedDateSessions.isEmpty
                 ? const Center(
@@ -810,7 +813,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             ),
           ),
         ),
-
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
           decoration: BoxDecoration(
@@ -826,7 +828,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
         ),
-
         Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -866,7 +867,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
               ),
           ],
         ),
-
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
@@ -901,7 +901,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             ],
           ),
         ),
-
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -961,9 +960,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
             ],
           ),
         ),
-
         const VerticalDivider(width: 1, color: Colors.white24, indent: 10, endIndent: 10),
-
         Expanded(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -990,7 +987,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                   ),
                 ),
               ),
-
               if (_isWorkTime && _isOvertime)
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
@@ -1001,7 +997,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                   icon: const Icon(Icons.play_arrow, color: Colors.white, size: 18),
                   label: const Text('Start Break', style: TextStyle(fontSize: 14, color: Colors.white)),
                 ),
-
               if (!_isWorkTime)
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
@@ -1012,7 +1007,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                   icon: const Icon(Icons.stop, color: Colors.white, size: 18),
                   label: const Text('Stop Break / Resume Work', style: TextStyle(fontSize: 13, color: Colors.white)),
                 ),
-
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
@@ -1046,7 +1040,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
                   ],
                 ),
               ),
-
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
