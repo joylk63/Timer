@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:wakelock_plus/wakelock_plus.dart'; // Wakelock import
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -68,7 +68,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   // Track system clock for background accuracy
   DateTime? _targetEndTime;
 
-  // New Variables for Overtime tracking
+  // Variables for Overtime tracking
   bool _isOvertime = false;
   int _overtimeSeconds = 0;
   bool _isBreakOvertime = false;
@@ -99,7 +99,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _audioPlayer.dispose();
-    WakelockPlus.disable(); // App বন্ধ বা স্ক্রিন ডিসপোজ হলে Wakelock অফ করা
+    WakelockPlus.disable(); // Turn off Wakelock when screen is disposed or app closes
     super.dispose();
   }
 
@@ -284,7 +284,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
       }
     }
 
-    WakelockPlus.enable(); // টাইমার চালু হলে স্ক্রিন অন রাখা হবে
+    WakelockPlus.enable(); // Keep screen awake when timer starts
 
     setState(() => _isRunning = true);
 
@@ -295,7 +295,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
 
   void _pauseTimer() {
     _timer?.cancel();
-    WakelockPlus.disable(); // টাইমার পজ হলে স্ক্রিন স্লিপ হতে পারবে
+    WakelockPlus.disable(); // Allow screen sleep when paused
     setState(() {
       _isRunning = false;
     });
@@ -303,7 +303,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
 
   void _resetTimer() {
     _timer?.cancel();
-    WakelockPlus.disable(); // টাইমার রিসেট হলে Wakelock অফ
+    WakelockPlus.disable(); // Disable Wakelock on reset
     setState(() {
       _isRunning = false;
       _isWorkTime = true;
@@ -319,7 +319,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   // Switch from Work Overtime to Break Time
   void _startBreakTime() {
     _timer?.cancel();
-    WakelockPlus.enable(); // ব্রেক টাইমেও স্ক্রিন অন থাকবে
+    WakelockPlus.enable(); // Keep screen awake during break time
     setState(() {
       _isWorkTime = false;
       _isOvertime = false;
@@ -339,7 +339,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> with WidgetsBindingObse
   // Stop Break Time and Return to Work Mode
   void _stopBreakTime() {
     _timer?.cancel();
-    WakelockPlus.disable(); // ব্রেক থামালে Wakelock অফ
+    WakelockPlus.disable(); // Disable Wakelock when break stops
     setState(() {
       _isWorkTime = true;
       _isOvertime = false;
