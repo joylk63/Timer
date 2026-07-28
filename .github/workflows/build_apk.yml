@@ -10,31 +10,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Set up Java JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
+    - name: Set up Java JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        channel: 'stable'
 
-      - name: Create Android project files
-        run: flutter create . --platforms=android
+    - name: Create Android project files
+      run: flutter create . --platforms=android
 
-      - name: Get dependencies
-        run: flutter pub get
+    - name: Get dependencies
+      run: flutter pub get
 
-      - name: Build APK
-        run: flutter build apk --release
+    - name: Generate App Icon
+      run: dart run flutter_launcher_icons
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pomodoro-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-          
+    - name: Build APK
+      run: flutter build apk --release
+
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: pomodoro-release-apk
+        path: build/app/outputs/flutter-apk/app-release.apk
