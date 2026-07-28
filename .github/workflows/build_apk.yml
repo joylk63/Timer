@@ -23,8 +23,8 @@ jobs:
       with:
         channel: 'stable'
 
-    - name: Create Android project files
-      run: flutter create . --platforms=android
+    - name: Create Android and ios project files
+      run: flutter create . --platforms=android,ios
 
     - name: Get dependencies
       run: flutter pub get
