@@ -1,7 +1,6 @@
 name: pomodoro_app
-description: "A complete Pomodoro Timer application with overtime tracking and wakelock support."
+description: "A customizable Pomodoro Timer App"
 publish_to: 'none'
-
 version: 1.0.0+1
 
 environment:
@@ -10,9 +9,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  shared_preferences: ^2.2.2
+  cupertino_icons: ^1.0.6
   audioplayers: ^6.0.0
-  wakelock_plus: ^1.2.8
+  shared_preferences: ^2.2.2
 
 dev_dependencies:
   flutter_test:
